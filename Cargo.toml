@@ -1,0 +1,45 @@
+[package]
+name = "sdr-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+description = "The shared layer of the sdr-* radio drivers: the sc16 sample, one error type, tuning and gain types, a runtime-agnostic IQ stream"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/MimoCAD/sdr-core"
+readme = "README.md"
+keywords = ["sdr", "radio", "iq", "usb"]
+categories = ["hardware-support"]
+
+[lib]
+doctest = false
+
+# What every radio backend shares: the sc16 sample, the error type, the
+# tuning and gain vocabulary, the hot-path RxSource seam, the IqStream
+# worker and (with `usb`) the bulk-IQ engine the USB drivers stream
+# through. The drivers (sdr-rtl, sdr-hackrf) build on it; it knows none
+# of them.
+[features]
+default = ["std"]
+# What needs threads and the OS: IqStream (with futures-core's Stream),
+# open_with_deadline, elevate_current_thread. Off, the crate is no_std
+# with alloc.
+std = ["dep:futures-core", "dep:js-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures"]
+# The bulk-IQ engine (src/usb_stream.rs) and its one dependency, nusb.
+usb = ["std", "dep:nusb"]
+# Error::Uhd, for a backend built on libuhd.
+uhd = []
+
+[dependencies]
+futures-core = { version = "0.3", optional = true }
+# Pure-Rust userspace USB (IOKit/usbfs directly, no libusb) — the bulk
+# transfer queue in src/usb_stream.rs.
+nusb = { version = "0.2", optional = true }
+
+# In a browser: `performance.now()` and `setTimeout` for `time` — the same
+# crates nusb's WebUSB backend already brings in there.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { version = "0.3", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+
+[dev-dependencies]
