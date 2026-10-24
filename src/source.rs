@@ -20,6 +20,15 @@ pub trait RxSource: Send + 'static {
     /// come back as flags on the `RecvInfo`; only fatal stream errors `Err`.
     fn recv_into(&mut self, buf: &mut [Iq], timeout_secs: f64) -> Result<RecvInfo>;
 
+    /// Samples the device did not produce, on purpose, since the last
+    /// call: a change made inside a pause (an RTL-SDR's retune) stops the
+    /// sampling for that long. A consumer keeping time by counting samples
+    /// advances its clock by this, as it does by samples lost. 0 for a
+    /// device that keeps sampling through a change.
+    fn take_gap_samples(&mut self) -> u64 {
+        0
+    }
+
     /// Called once on the dedicated worker thread before the recv loop.
     /// Backends use it for best-effort realtime elevation — without it,
     /// desktop UI activity can preempt the recv loop long enough to overflow

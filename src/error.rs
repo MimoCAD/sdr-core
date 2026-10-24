@@ -111,11 +111,32 @@ pub fn open_with_deadline<T: Send + 'static>(
 ) -> Result<T> {
     /// A healthy open finishes in single-digit milliseconds; the
     /// slowest legitimate path is a cold hub enumeration (~1 s) plus
-    /// the driver's own 500 ms-bounded first control transfer. 3 s is
-    /// past every legitimate open and still "dies quickly" at a
-    /// terminal.
+    /// the driver's own bounded first control transfer (sdr-rtl's 300 ms
+    /// control timeout). 3 s is past every legitimate open and still
+    /// "dies quickly" at a terminal.
     const OPEN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(3);
     open_with_deadline_at(backend, OPEN_DEADLINE, f)
+}
+
+/// Per backend, opens given up at their deadline whose thread has not yet
+/// returned. While one exists, that thread may still be writing the
+/// device's registers, so a new open of the backend is refused at once
+/// rather than run interleaved with it.
+#[cfg(feature = "std")]
+static ABANDONED: std::sync::Mutex<alloc::vec::Vec<(&'static str, usize)>> = std::sync::Mutex::new(alloc::vec::Vec::new());
+
+#[cfg(feature = "std")]
+fn abandoned(backend: &'static str, delta: isize) -> usize {
+    let mut v = ABANDONED.lock().unwrap_or_else(|p| p.into_inner());
+    let i = match v.iter().position(|(b, _)| *b == backend) {
+        Some(i) => i,
+        None => {
+            v.push((backend, 0));
+            v.len() - 1
+        }
+    };
+    v[i].1 = v[i].1.saturating_add_signed(delta);
+    v[i].1
 }
 
 /// [`open_with_deadline`] with the deadline explicit — split out so the
@@ -126,23 +147,50 @@ fn open_with_deadline_at<T: Send + 'static>(
     deadline: std::time::Duration,
     f: impl FnOnce() -> Result<T> + Send + 'static,
 ) -> Result<T> {
+    use core::sync::atomic::{AtomicU8, Ordering};
+    if abandoned(backend, 0) > 0 {
+        return Err(Error::Usb {
+            backend,
+            context: "open",
+            message: "an earlier open of this backend passed its deadline and is still running (it may still be writing the device); try again once it ends, or replug the device".into(),
+        });
+    }
+    // 0 running, 1 returned in time, 2 given up (the thread then
+    // un-counts itself when it returns).
+    const RUNNING: u8 = 0;
+    const RETURNED: u8 = 1;
+    const GIVEN_UP: u8 = 2;
+    let state = alloc::sync::Arc::new(AtomicU8::new(RUNNING));
+    let thread_state = state.clone();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::Builder::new()
         .name(alloc::format!("{backend}-open"))
         .spawn(move || {
-            let _ = tx.send(f());
+            let r = f();
+            if thread_state.compare_exchange(RUNNING, RETURNED, Ordering::AcqRel, Ordering::Acquire).is_err() {
+                abandoned(backend, -1);
+            }
+            let _ = tx.send(r);
         })
         .expect("spawn device-open thread");
     match rx.recv_timeout(deadline) {
         Ok(result) => result,
-        Err(_) => Err(Error::Usb {
-            backend,
-            context: "open",
-            message: alloc::format!(
-                "no response in {deadline:?} — the device is not answering \
-                 (wedged firmware? replug it or power-cycle its hub)"
-            ),
-        }),
+        Err(_) => {
+            if state.compare_exchange(RUNNING, GIVEN_UP, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+                abandoned(backend, 1);
+            } else if let Ok(result) = rx.try_recv() {
+                // It returned just as the deadline passed.
+                return result;
+            }
+            Err(Error::Usb {
+                backend,
+                context: "open",
+                message: alloc::format!(
+                    "no response in {deadline:?} — the device is not answering \
+                     (wedged firmware? replug it or power-cycle its hub)"
+                ),
+            })
+        }
     }
 }
 
@@ -152,7 +200,7 @@ mod tests {
 
     #[test]
     fn bounded_open_returns_the_result_when_prompt() {
-        let got = open_with_deadline_at("test", std::time::Duration::from_secs(1), || Ok(7u8));
+        let got = open_with_deadline_at("test-prompt", std::time::Duration::from_secs(1), || Ok(7u8));
         assert_eq!(got.unwrap(), 7);
     }
 
@@ -160,15 +208,34 @@ mod tests {
     fn bounded_open_errors_loudly_when_the_open_hangs() {
         // Stand-in for a wedged device: an open that never returns.
         let got: Result<u8> =
-            open_with_deadline_at("test", std::time::Duration::from_millis(50), || {
+            open_with_deadline_at("test-hang", std::time::Duration::from_millis(50), || {
                 std::thread::sleep(std::time::Duration::from_secs(60));
                 Ok(0)
             });
         match got {
-            Err(Error::Usb { backend: "test", context: "open", message }) => {
+            Err(Error::Usb { backend: "test-hang", context: "open", message }) => {
                 assert!(message.contains("not answering"), "{message}");
             }
             other => panic!("expected the deadline error, got {other:?}"),
         }
+    }
+
+    /// Review A9: while an abandoned open still runs, a new open of the
+    /// backend is refused at once (never two bring-ups at once); once it
+    /// returns, opens work again.
+    #[test]
+    fn no_second_open_while_an_abandoned_one_runs() {
+        let ms = std::time::Duration::from_millis;
+        let slow: Result<u8> = open_with_deadline_at("test-a9", ms(50), move || {
+            std::thread::sleep(ms(300));
+            Ok(0)
+        });
+        assert!(slow.is_err());
+        let t = std::time::Instant::now();
+        let refused = open_with_deadline_at("test-a9", ms(1_000), || Ok(1u8));
+        assert!(t.elapsed() < ms(50), "refused at once");
+        assert!(alloc::format!("{}", refused.unwrap_err()).contains("still running"));
+        std::thread::sleep(ms(400));
+        assert_eq!(open_with_deadline_at("test-a9", ms(1_000), || Ok(2u8)).unwrap(), 2);
     }
 }

@@ -26,6 +26,8 @@ default = ["std"]
 std = ["dep:futures-core", "dep:js-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures"]
 # The bulk-IQ engine (src/usb_stream.rs) and its one dependency, nusb.
 usb = ["std", "dep:nusb"]
+# usb_stream::mock: a scripted bulk endpoint for drivers' tests (native).
+mock = ["usb"]
 # Error::Uhd, for a backend built on libuhd.
 uhd = []
 
