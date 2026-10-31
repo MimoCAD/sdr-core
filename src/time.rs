@@ -139,7 +139,10 @@ mod tests {
         let t = Instant::now();
         crate::block_on(sleep(Duration::from_millis(20)));
         let e = t.elapsed();
-        assert!(e >= Duration::from_millis(20) && e < Duration::from_secs(1), "{e:?}");
+        assert!(
+            e >= Duration::from_millis(20) && e < Duration::from_secs(1),
+            "{e:?}"
+        );
         assert_eq!(t + e - t, e);
         assert_eq!(t - (t + e), Duration::ZERO);
         assert_eq!(t.checked_duration_since(t + e), None);

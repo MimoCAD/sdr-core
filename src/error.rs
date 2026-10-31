@@ -123,7 +123,8 @@ pub fn open_with_deadline<T: Send + 'static>(
 /// device's registers, so a new open of the backend is refused at once
 /// rather than run interleaved with it.
 #[cfg(feature = "std")]
-static ABANDONED: std::sync::Mutex<alloc::vec::Vec<(&'static str, usize)>> = std::sync::Mutex::new(alloc::vec::Vec::new());
+static ABANDONED: std::sync::Mutex<alloc::vec::Vec<(&'static str, usize)>> =
+    std::sync::Mutex::new(alloc::vec::Vec::new());
 
 #[cfg(feature = "std")]
 fn abandoned(backend: &'static str, delta: isize) -> usize {
@@ -167,7 +168,10 @@ fn open_with_deadline_at<T: Send + 'static>(
         .name(alloc::format!("{backend}-open"))
         .spawn(move || {
             let r = f();
-            if thread_state.compare_exchange(RUNNING, RETURNED, Ordering::AcqRel, Ordering::Acquire).is_err() {
+            if thread_state
+                .compare_exchange(RUNNING, RETURNED, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            {
                 abandoned(backend, -1);
             }
             let _ = tx.send(r);
@@ -176,7 +180,10 @@ fn open_with_deadline_at<T: Send + 'static>(
     match rx.recv_timeout(deadline) {
         Ok(result) => result,
         Err(_) => {
-            if state.compare_exchange(RUNNING, GIVEN_UP, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+            if state
+                .compare_exchange(RUNNING, GIVEN_UP, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
                 abandoned(backend, 1);
             } else if let Ok(result) = rx.try_recv() {
                 // It returned just as the deadline passed.
@@ -200,7 +207,8 @@ mod tests {
 
     #[test]
     fn bounded_open_returns_the_result_when_prompt() {
-        let got = open_with_deadline_at("test-prompt", std::time::Duration::from_secs(1), || Ok(7u8));
+        let got =
+            open_with_deadline_at("test-prompt", std::time::Duration::from_secs(1), || Ok(7u8));
         assert_eq!(got.unwrap(), 7);
     }
 
@@ -213,7 +221,11 @@ mod tests {
                 Ok(0)
             });
         match got {
-            Err(Error::Usb { backend: "test-hang", context: "open", message }) => {
+            Err(Error::Usb {
+                backend: "test-hang",
+                context: "open",
+                message,
+            }) => {
                 assert!(message.contains("not answering"), "{message}");
             }
             other => panic!("expected the deadline error, got {other:?}"),
@@ -236,6 +248,9 @@ mod tests {
         assert!(t.elapsed() < ms(50), "refused at once");
         assert!(alloc::format!("{}", refused.unwrap_err()).contains("still running"));
         std::thread::sleep(ms(400));
-        assert_eq!(open_with_deadline_at("test-a9", ms(1_000), || Ok(2u8)).unwrap(), 2);
+        assert_eq!(
+            open_with_deadline_at("test-a9", ms(1_000), || Ok(2u8)).unwrap(),
+            2
+        );
     }
 }

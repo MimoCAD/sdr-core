@@ -75,13 +75,19 @@ impl Stage {
 
     /// Position in [`Stage::ALL`], for per-stage arrays.
     pub fn index(self) -> usize {
-        Stage::ALL.iter().position(|&s| s == self).expect("every stage is in ALL")
+        Stage::ALL
+            .iter()
+            .position(|&s| s == self)
+            .expect("every stage is in ALL")
     }
 
     /// The error a driver's `TryFrom<Stage>` gives for a stage its radio
     /// does not have.
     pub fn absent(self, backend: &'static str) -> crate::Error {
-        crate::Error::Unsupported { backend, what: format!("a {} gain stage (this radio has none)", self.key()) }
+        crate::Error::Unsupported {
+            backend,
+            what: format!("a {} gain stage (this radio has none)", self.key()),
+        }
     }
 }
 
@@ -99,7 +105,12 @@ pub struct StageReading<S = Stage> {
 impl<S: Into<Stage>> StageReading<S> {
     /// The reading under the shared [`Stage`] name.
     pub fn common(self) -> StageReading {
-        StageReading { stage: self.stage.into(), level: self.level, levels: self.levels, db: self.db }
+        StageReading {
+            stage: self.stage.into(),
+            level: self.level,
+            levels: self.levels,
+            db: self.db,
+        }
     }
 }
 
@@ -133,8 +144,16 @@ pub fn describe(readings: &[StageReading]) -> String {
 fn trim_db(db: f64) -> String {
     // Nearest whole dB, half away from zero (`f64::round` is std's; gain
     // values are far inside i64).
-    let whole = if db >= 0.0 { (db + 0.5) as i64 } else { (db - 0.5) as i64 } as f64;
-    if (db - whole).abs() < 0.05 { format!("{:.0}", db) } else { format!("{db:.1}") }
+    let whole = if db >= 0.0 {
+        (db + 0.5) as i64
+    } else {
+        (db - 0.5) as i64
+    } as f64;
+    if (db - whole).abs() < 0.05 {
+        format!("{:.0}", db)
+    } else {
+        format!("{db:.1}")
+    }
 }
 
 #[cfg(test)]
@@ -155,12 +174,32 @@ mod tests {
             assert_eq!(Stage::from_key(s.key()), Some(s));
         }
         let r = [
-            StageReading { stage: Stage::Amp, level: 0, levels: 2, db: 0.0 },
-            StageReading { stage: Stage::Lna, level: 5, levels: 6, db: 40.0 },
-            StageReading { stage: Stage::Vga, level: 4, levels: 32, db: 8.0 },
+            StageReading {
+                stage: Stage::Amp,
+                level: 0,
+                levels: 2,
+                db: 0.0,
+            },
+            StageReading {
+                stage: Stage::Lna,
+                level: 5,
+                levels: 6,
+                db: 40.0,
+            },
+            StageReading {
+                stage: Stage::Vga,
+                level: 4,
+                levels: 32,
+                db: 8.0,
+            },
         ];
         assert_eq!(describe(&r), "AMP off · LNA 40 · VGA 8 dB (48 dB)");
-        let one = [StageReading { stage: Stage::Pga, level: 40, levels: 77, db: 40.0 }];
+        let one = [StageReading {
+            stage: Stage::Pga,
+            level: 40,
+            levels: 77,
+            db: 40.0,
+        }];
         assert_eq!(describe(&one), "PGA 40 dB");
     }
 }

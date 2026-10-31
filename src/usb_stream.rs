@@ -64,7 +64,9 @@ pub trait BulkIn {
     #[cfg(not(target_arch = "wasm32"))]
     fn wait_next_complete(&mut self, timeout: Duration) -> Option<Completion>;
     /// Clear a halt (a stall). nusb: not while transfers are pending.
-    fn clear_halt(&mut self) -> Pin<Box<dyn Future<Output = core::result::Result<(), String>> + '_>>;
+    fn clear_halt(
+        &mut self,
+    ) -> Pin<Box<dyn Future<Output = core::result::Result<(), String>> + '_>>;
 }
 
 impl BulkIn for nusb::Endpoint<Bulk, In> {
@@ -98,13 +100,20 @@ impl BulkIn for nusb::Endpoint<Bulk, In> {
         nusb::Endpoint::wait_next_complete(self, timeout)
     }
 
-    fn clear_halt(&mut self) -> Pin<Box<dyn Future<Output = core::result::Result<(), String>> + '_>> {
+    fn clear_halt(
+        &mut self,
+    ) -> Pin<Box<dyn Future<Output = core::result::Result<(), String>> + '_>> {
         #[cfg(not(target_arch = "wasm32"))]
-        let r = nusb::MaybeFuture::wait(nusb::Endpoint::clear_halt(self)).map_err(|e| e.to_string());
+        let r =
+            nusb::MaybeFuture::wait(nusb::Endpoint::clear_halt(self)).map_err(|e| e.to_string());
         #[cfg(not(target_arch = "wasm32"))]
         return Box::pin(core::future::ready(r));
         #[cfg(target_arch = "wasm32")]
-        return Box::pin(async move { nusb::Endpoint::clear_halt(self).await.map_err(|e| e.to_string()) });
+        return Box::pin(async move {
+            nusb::Endpoint::clear_halt(self)
+                .await
+                .map_err(|e| e.to_string())
+        });
     }
 }
 
@@ -225,11 +234,25 @@ impl BulkIqStream {
         queue_depth: usize,
         sample_rate: f64,
     ) -> BulkIqStream {
-        BulkIqStream::with_endpoint(backend, Box::new(endpoint), fmt, transfer_bytes, queue_depth, sample_rate)
+        BulkIqStream::with_endpoint(
+            backend,
+            Box::new(endpoint),
+            fmt,
+            transfer_bytes,
+            queue_depth,
+            sample_rate,
+        )
     }
 
     /// [`BulkIqStream::new`] on any [`BulkIn`].
-    pub fn with_endpoint(backend: &'static str, endpoint: BoxedBulkIn, fmt: WireSample, transfer_bytes: usize, queue_depth: usize, sample_rate: f64) -> BulkIqStream {
+    pub fn with_endpoint(
+        backend: &'static str,
+        endpoint: BoxedBulkIn,
+        fmt: WireSample,
+        transfer_bytes: usize,
+        queue_depth: usize,
+        sample_rate: f64,
+    ) -> BulkIqStream {
         // Transfers must be multiples of the endpoint's max packet size or
         // the bus rounds awkwardly; snap down, floor one packet.
         let mps = endpoint.max_packet_size().max(64);
@@ -383,7 +406,14 @@ impl BulkIqStream {
     /// endpoint left halted would only ever time out).
     async fn clear_halt(&mut self, context: &'static str) -> Result<()> {
         let backend = self.backend;
-        self.endpoint.clear_halt().await.map_err(|message| Error::Usb { backend, context, message })
+        self.endpoint
+            .clear_halt()
+            .await
+            .map_err(|message| Error::Usb {
+                backend,
+                context,
+                message,
+            })
     }
 
     /// Recover from a stall in the running queue: every queued transfer
@@ -400,7 +430,8 @@ impl BulkIqStream {
                     return Err(Error::Usb {
                         backend: self.backend,
                         context: "bulk stall",
-                        message: "cancelled transfers did not complete; the halt cannot be cleared".into(),
+                        message: "cancelled transfers did not complete; the halt cannot be cleared"
+                            .into(),
                     });
                 };
                 self.backlog.extend_from_slice(&c.buffer[..c.actual_len]);
@@ -455,7 +486,10 @@ impl BulkIqStream {
             used = 1;
         }
         let pairs = ((data.len() - used) / 2).min(buf.len() - n);
-        for (out, pair) in buf[n..n + pairs].iter_mut().zip(data[used..used + 2 * pairs].as_chunks::<2>().0) {
+        for (out, pair) in buf[n..n + pairs]
+            .iter_mut()
+            .zip(data[used..used + 2 * pairs].as_chunks::<2>().0)
+        {
             *out = self.fmt.widen(pair[0], pair[1]);
         }
         n += pairs;
@@ -472,7 +506,8 @@ impl BulkIqStream {
     fn recv_backlog(&mut self, buf: &mut [Iq]) -> RecvInfo {
         let take = (self.backlog.len() - self.backlog_read).min(self.transfer_bytes);
         let backlog = core::mem::take(&mut self.backlog);
-        let (n_samples, used) = self.widen_into(&backlog[self.backlog_read..self.backlog_read + take], buf);
+        let (n_samples, used) =
+            self.widen_into(&backlog[self.backlog_read..self.backlog_read + take], buf);
         self.backlog = backlog;
         self.backlog_read += used;
         if self.backlog_read == self.backlog.len() {
@@ -480,7 +515,10 @@ impl BulkIqStream {
             self.backlog_read = 0;
         }
         self.delivered_bytes += 2 * n_samples as u64;
-        RecvInfo { n_samples, ..Default::default() }
+        RecvInfo {
+            n_samples,
+            ..Default::default()
+        }
     }
 
     /// Copy the carry byte and then the backlog into `buf`; returns the
@@ -494,7 +532,8 @@ impl BulkIqStream {
             n = 1;
         }
         let take = (self.backlog.len() - self.backlog_read).min(buf.len() - n);
-        buf[n..n + take].copy_from_slice(&self.backlog[self.backlog_read..self.backlog_read + take]);
+        buf[n..n + take]
+            .copy_from_slice(&self.backlog[self.backlog_read..self.backlog_read + take]);
         self.backlog_read += take;
         if self.backlog_read == self.backlog.len() {
             self.backlog.clear();
@@ -557,7 +596,10 @@ impl BulkIqStream {
         }
         if self.held_at.is_some() {
             // Held, the backlog drained: nothing is queued until release.
-            return Ok(RecvInfo { timed_out: true, ..Default::default() });
+            return Ok(RecvInfo {
+                timed_out: true,
+                ..Default::default()
+            });
         }
         self.recv_completion(timeout_secs, |s, data| {
             // Widen into the caller's sc16 buffer, pairing across transfer
@@ -583,7 +625,11 @@ impl BulkIqStream {
     /// completion's report, whose `n_samples` is the bytes / 2. What does
     /// not fit `buf` is kept and handed out first by the next call, so any
     /// buffer size reads the stream whole. May be mixed with `recv_into`.
-    pub async fn recv_bytes_async(&mut self, buf: &mut [u8], timeout_secs: f64) -> Result<(usize, RecvInfo)> {
+    pub async fn recv_bytes_async(
+        &mut self,
+        buf: &mut [u8],
+        timeout_secs: f64,
+    ) -> Result<(usize, RecvInfo)> {
         if self.started.is_none() {
             self.start()?;
         }
@@ -593,21 +639,34 @@ impl BulkIqStream {
         if self.on_hand_bytes() > 0 {
             self.reap().await?;
             let n = self.take_on_hand(buf);
-            return Ok((n, RecvInfo { n_samples: n / 2, ..Default::default() }));
+            return Ok((
+                n,
+                RecvInfo {
+                    n_samples: n / 2,
+                    ..Default::default()
+                },
+            ));
         }
         if self.held_at.is_some() {
-            return Ok((0, RecvInfo { timed_out: true, ..Default::default() }));
+            return Ok((
+                0,
+                RecvInfo {
+                    timed_out: true,
+                    ..Default::default()
+                },
+            ));
         }
         let mut written = 0usize;
-        let info = self.recv_completion(timeout_secs, |s, data| {
-            let k = data.len().min(buf.len());
-            buf[..k].copy_from_slice(&data[..k]);
-            s.delivered_bytes += k as u64;
-            s.backlog.extend_from_slice(&data[k..]);
-            written = k;
-            k / 2
-        })
-        .await?;
+        let info = self
+            .recv_completion(timeout_secs, |s, data| {
+                let k = data.len().min(buf.len());
+                buf[..k].copy_from_slice(&data[..k]);
+                s.delivered_bytes += k as u64;
+                s.backlog.extend_from_slice(&data[k..]);
+                written = k;
+                k / 2
+            })
+            .await?;
         Ok((written, info))
     }
 
@@ -646,13 +705,23 @@ impl BulkIqStream {
     /// Wait for the next completion, hand its bytes to `consume` (which
     /// returns the samples it delivered), resubmit the buffer, and keep the
     /// ledger.
-    async fn recv_completion(&mut self, timeout_secs: f64, consume: impl FnOnce(&mut Self, &[u8]) -> usize) -> Result<RecvInfo> {
+    async fn recv_completion(
+        &mut self,
+        timeout_secs: f64,
+        consume: impl FnOnce(&mut Self, &[u8]) -> usize,
+    ) -> Result<RecvInfo> {
         let started = self.started.expect("started by the caller");
         let wait_from_us = started.elapsed().as_micros() as u64;
         if self.endpoint.pending() == 0 {
-            return Ok(RecvInfo { timed_out: true, ..Default::default() });
+            return Ok(RecvInfo {
+                timed_out: true,
+                ..Default::default()
+            });
         }
-        let Some(completion) = self.next_completion(Duration::from_secs_f64(timeout_secs.max(0.0))).await else {
+        let Some(completion) = self
+            .next_completion(Duration::from_secs_f64(timeout_secs.max(0.0)))
+            .await
+        else {
             return Ok(RecvInfo {
                 timed_out: true,
                 ..Default::default()
@@ -687,7 +756,10 @@ impl BulkIqStream {
             let core::task::Poll::Ready(c) = self.endpoint.poll_next_complete(&mut cx) else {
                 break;
             };
-            let wait_from_us = self.started.map(|s| s.elapsed().as_micros() as u64).unwrap_or(0);
+            let wait_from_us = self
+                .started
+                .map(|s| s.elapsed().as_micros() as u64)
+                .unwrap_or(0);
             self.process(c, wait_from_us, |s, data| {
                 s.backlog.extend_from_slice(data);
                 0
@@ -699,7 +771,12 @@ impl BulkIqStream {
 
     /// One completion: its bytes to `consume`, the buffer resubmitted, the
     /// ledger kept.
-    async fn process(&mut self, completion: Completion, wait_from_us: u64, consume: impl FnOnce(&mut Self, &[u8]) -> usize) -> Result<RecvInfo> {
+    async fn process(
+        &mut self,
+        completion: Completion,
+        wait_from_us: u64,
+        consume: impl FnOnce(&mut Self, &[u8]) -> usize,
+    ) -> Result<RecvInfo> {
         let started = self.started.expect("started by the caller");
         let now_us = started.elapsed().as_micros() as u64;
 
@@ -830,7 +907,17 @@ mod tests {
 
     fn stream() -> (BulkIqStream, MockHandle) {
         let (ep, handle) = mock::endpoint();
-        (BulkIqStream::with_endpoint("mock", Box::new(ep), WireSample::OffsetU8, TRANSFER, QUEUE, 2.4e6), handle)
+        (
+            BulkIqStream::with_endpoint(
+                "mock",
+                Box::new(ep),
+                WireSample::OffsetU8,
+                TRANSFER,
+                QUEUE,
+                2.4e6,
+            ),
+            handle,
+        )
     }
 
     /// `n` samples whose I and Q bytes say where they are: I = k mod 256,
@@ -841,7 +928,11 @@ mod tests {
 
     fn expected(n: usize) -> Vec<Iq> {
         let w = wire(n);
-        w.as_chunks::<2>().0.iter().map(|p| WireSample::OffsetU8.widen(p[0], p[1])).collect()
+        w.as_chunks::<2>()
+            .0
+            .iter()
+            .map(|p| WireSample::OffsetU8.widen(p[0], p[1]))
+            .collect()
     }
 
     /// Every sample, through `recv_into` with buffers of `size`, until the
@@ -882,7 +973,10 @@ mod tests {
             }
             let got = drain(&mut s, size);
             assert_eq!(got.len(), n, "buffer {size}: samples");
-            assert!(got == expected(n), "buffer {size}: a sample out of order or I/Q swapped");
+            assert!(
+                got == expected(n),
+                "buffer {size}: a sample out of order or I/Q swapped"
+            );
             assert_eq!(s.delivered(), n as u64);
         }
     }
@@ -920,7 +1014,12 @@ mod tests {
         }
         // Whatever recv_bytes took as a lone byte returns as half a sample.
         assert_eq!(&got[..], &w[..got.len()]);
-        assert!(w.len() - got.len() <= 1, "{} of {} bytes", got.len(), w.len());
+        assert!(
+            w.len() - got.len() <= 1,
+            "{} of {} bytes",
+            got.len(),
+            w.len()
+        );
     }
 
     /// Review A6: a stall mid-stream. The queue is cancelled and drained,
@@ -937,7 +1036,10 @@ mod tests {
         assert!(got == expected(20_000), "order across the stall");
         let st = h.stats();
         assert_eq!(st.clear_halts, 1);
-        assert_eq!(st.clear_halts_with_pending, 0, "nusb: never clear a halt with transfers pending");
+        assert_eq!(
+            st.clear_halts_with_pending, 0,
+            "nusb: never clear a halt with transfers pending"
+        );
         assert_eq!(st.cancels, 1);
         assert_eq!(h.pending(), QUEUE, "the queue refilled");
     }
@@ -972,7 +1074,10 @@ mod tests {
         let (mut s, h) = stream();
         h.fail(TransferError::Unknown(LINUX_ENOMEM), Vec::new());
         let mut buf = vec![Iq::default(); 8_192];
-        let e = s.recv_into(&mut buf, 0.0).expect_err("ENOMEM ends the stream").to_string();
+        let e = s
+            .recv_into(&mut buf, 0.0)
+            .expect_err("ENOMEM ends the stream")
+            .to_string();
         assert!(e.contains("usbfs_memory_mb"), "{e}");
     }
 
@@ -993,7 +1098,11 @@ mod tests {
         assert_eq!(h.pending(), 0, "every queued transfer taken back");
         // Everything taken off the wire before the hold comes out first.
         got.extend(drain(&mut s, 3_000));
-        assert_eq!(got.len() as u64, at, "the break sits after what was on the wire");
+        assert_eq!(
+            got.len() as u64,
+            at,
+            "the break sits after what was on the wire"
+        );
         s.release().unwrap();
         assert_eq!(h.pending(), QUEUE);
         h.send(w[30_001..].to_vec());

@@ -46,7 +46,13 @@ pub struct ClockConfig {
 
 impl Default for ClockConfig {
     fn default() -> Self {
-        ClockConfig { window_s: 1.0, tau_min_s: 8.0, tau_max_s: 256.0, step_threshold_s: 0.005, step_windows: 3 }
+        ClockConfig {
+            window_s: 1.0,
+            tau_min_s: 8.0,
+            tau_max_s: 256.0,
+            step_threshold_s: 0.005,
+            step_windows: 3,
+        }
     }
 }
 
@@ -186,7 +192,10 @@ impl SampleClock {
                 self.tau = self.cfg.tau_min_s;
                 self.calm = 0;
                 self.steps += 1;
-                return Some(ClockEvent::Step { at_sample: samples, offset_s: x });
+                return Some(ClockEvent::Step {
+                    at_sample: samples,
+                    offset_s: x,
+                });
             }
             return None;
         }
@@ -232,7 +241,14 @@ impl SampleClock {
 
 impl fmt::Display for SampleClock {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:+.3} ppm, offset {:+.3} ms, τ {:.0} s, {} steps", self.ppm(), self.last_offset * 1e3, self.tau, self.steps)
+        write!(
+            f,
+            "{:+.3} ppm, offset {:+.3} ms, τ {:.0} s, {} steps",
+            self.ppm(),
+            self.last_offset * 1e3,
+            self.tau,
+            self.steps
+        )
     }
 }
 
@@ -245,7 +261,10 @@ mod tests {
     struct Lcg(u64);
     impl Lcg {
         fn next(&mut self) -> f64 {
-            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (self.0 >> 11) as f64 / (1u64 << 53) as f64
         }
     }
@@ -254,7 +273,14 @@ mod tests {
     /// a completion every `every_s` seconds observed `delay` late (a
     /// floor plus jitter, now and then a long stall); returns the worst
     /// |time_of − true time| after `settle_s`, and the final ppm.
-    fn run(nominal: f64, ppm: impl Fn(f64) -> f64, days: f64, every_s: f64, cfg: ClockConfig, mut on: impl FnMut(&mut SampleClock, f64, u64)) -> (f64, f64, SampleClock) {
+    fn run(
+        nominal: f64,
+        ppm: impl Fn(f64) -> f64,
+        days: f64,
+        every_s: f64,
+        cfg: ClockConfig,
+        mut on: impl FnMut(&mut SampleClock, f64, u64),
+    ) -> (f64, f64, SampleClock) {
         let mut c = SampleClock::with_config(nominal, cfg);
         let mut rng = Lcg(42);
         let (mut t, mut n) = (0.0f64, 0f64);
@@ -264,7 +290,13 @@ mod tests {
         while t < end {
             n += nominal * (1.0 + ppm(t) * 1e-6) * every_s;
             t += every_s;
-            let delay = 0.000_2 + 0.001 * rng.next() + if rng.next() < 0.01 { 0.01 * rng.next() } else { 0.0 };
+            let delay = 0.000_2
+                + 0.001 * rng.next()
+                + if rng.next() < 0.01 {
+                    0.01 * rng.next()
+                } else {
+                    0.0
+                };
             c.observe(n as u64, t + delay);
             on(&mut c, t, n as u64);
             if t > settle {
@@ -277,8 +309,18 @@ mod tests {
 
     #[test]
     fn a_constant_offset_is_measured_and_held() {
-        let (worst, ppm, c) = run(2.4e6, |_| 40.0, 0.25, 0.005, ClockConfig::default(), |_, _, _| {});
-        eprintln!("constant 40 ppm, 6 h: worst {:.3} ms, ppm {ppm:.4}", worst * 1e3);
+        let (worst, ppm, c) = run(
+            2.4e6,
+            |_| 40.0,
+            0.25,
+            0.005,
+            ClockConfig::default(),
+            |_, _, _| {},
+        );
+        eprintln!(
+            "constant 40 ppm, 6 h: worst {:.3} ms, ppm {ppm:.4}",
+            worst * 1e3
+        );
         assert!(worst < 0.0015, "worst {worst}");
         assert!((ppm - 40.0).abs() < 0.05, "ppm {ppm}");
         assert_eq!(c.steps(), 0);
@@ -291,10 +333,18 @@ mod tests {
     /// a daily temperature cycle).
     #[test]
     fn half_a_year_of_drift_stays_bounded() {
-        let ppm = |t: f64| 25.0 + 8.0 * (2.0 * std::f64::consts::PI * t / 86_400.0).sin() + t / 86_400.0 * 0.02;
-        let cfg = ClockConfig { window_s: 4.0, ..ClockConfig::default() };
+        let ppm = |t: f64| {
+            25.0 + 8.0 * (2.0 * std::f64::consts::PI * t / 86_400.0).sin() + t / 86_400.0 * 0.02
+        };
+        let cfg = ClockConfig {
+            window_s: 4.0,
+            ..ClockConfig::default()
+        };
         let (worst, _, c) = run(2.4e6, ppm, 180.0, 1.0, cfg, |_, _, _| {});
-        eprintln!("180 days, 25 ± 8 ppm daily + ageing: worst {:.3} ms, final {c}", worst * 1e3);
+        eprintln!(
+            "180 days, 25 ± 8 ppm daily + ageing: worst {:.3} ms, final {c}",
+            worst * 1e3
+        );
         assert!(worst < 0.001, "worst {worst}");
         assert_eq!(c.steps(), 0, "{c}");
     }
@@ -315,7 +365,9 @@ mod tests {
                 n -= 48_000;
                 lost = true;
             }
-            if let Some(ClockEvent::Step { offset_s, .. }) = c.observe(n, t + 0.0002 + 0.001 * rng.next()) {
+            if let Some(ClockEvent::Step { offset_s, .. }) =
+                c.observe(n, t + 0.0002 + 0.001 * rng.next())
+            {
                 seen = Some(offset_s);
             }
         }
@@ -327,7 +379,14 @@ mod tests {
     /// A deliberate break: the origin moves, the measured rate stays.
     #[test]
     fn resume_keeps_the_rate() {
-        let (_, ppm, mut c) = run(1.2e6, |_| -30.0, 0.1, 0.01, ClockConfig::default(), |_, _, _| {});
+        let (_, ppm, mut c) = run(
+            1.2e6,
+            |_| -30.0,
+            0.1,
+            0.01,
+            ClockConfig::default(),
+            |_, _, _| {},
+        );
         let before = c.ppm();
         c.resume(10_000_000_000, 1e6);
         assert_eq!(c.ppm(), before);

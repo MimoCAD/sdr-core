@@ -62,9 +62,17 @@ mod tests {
         );
         assert_eq!(usrp.open_spec(0.0), "uhd:type=b200,serial=0000001");
         // A bare scheme grows no stray comma.
-        let bare = DeviceDesc { spec: "uhd:".into(), label: String::new(), backend: Backend::Usrp };
+        let bare = DeviceDesc {
+            spec: "uhd:".into(),
+            label: String::new(),
+            backend: Backend::Usrp,
+        };
         assert_eq!(bare.open_spec(2.4e6), "uhd:master_clock_rate=4800000");
-        let rtl = DeviceDesc { spec: "rtl:0".into(), label: String::new(), backend: Backend::Rtl };
+        let rtl = DeviceDesc {
+            spec: "rtl:0".into(),
+            label: String::new(),
+            backend: Backend::Rtl,
+        };
         assert_eq!(rtl.open_spec(2.4e6), "rtl:0", "no master clock to pin");
     }
 }

@@ -1,10 +1,10 @@
 use std::ops::Deref;
 use std::pin::Pin;
-use std::vec::Vec;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll};
 use std::thread::JoinHandle;
+use std::vec::Vec;
 
 use crate::Iq;
 use crate::error::Result;

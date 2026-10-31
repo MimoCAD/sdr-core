@@ -62,7 +62,13 @@ unsafe impl<T: Send> Sync for Lock<T> {}
 
 impl<T> Lock<T> {
     pub fn new(value: T) -> Lock<T> {
-        Lock { state: Mutex::new(State { locked: false, waiting: Vec::new() }), value: UnsafeCell::new(value) }
+        Lock {
+            state: Mutex::new(State {
+                locked: false,
+                waiting: Vec::new(),
+            }),
+            value: UnsafeCell::new(value),
+        }
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {

@@ -87,7 +87,13 @@ pub struct MockHandle {
 /// endpoint.
 pub fn endpoint() -> (MockBulkIn, MockHandle) {
     let state = Arc::new(Mutex::new(State::default()));
-    (MockBulkIn { state: state.clone(), max_packet_size: 512 }, MockHandle { state })
+    (
+        MockBulkIn {
+            state: state.clone(),
+            max_packet_size: 512,
+        },
+        MockHandle { state },
+    )
 }
 
 fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
@@ -97,12 +103,16 @@ fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
 impl MockHandle {
     /// The device sends these bytes.
     pub fn send(&self, bytes: impl Into<Vec<u8>>) {
-        lock(&self.state).script.push_back(Event::Data(bytes.into()));
+        lock(&self.state)
+            .script
+            .push_back(Event::Data(bytes.into()));
     }
 
     /// The device ends a transfer with `error` after `bytes`.
     pub fn fail(&self, error: TransferError, bytes: impl Into<Vec<u8>>) {
-        lock(&self.state).script.push_back(Event::Fail(error, bytes.into()));
+        lock(&self.state)
+            .script
+            .push_back(Event::Fail(error, bytes.into()));
     }
 
     /// What the device sends after the script: asked for each transfer.
@@ -112,7 +122,9 @@ impl MockHandle {
 
     /// The next halt clear fails with `message`.
     pub fn fail_next_clear_halt(&self, message: &str) {
-        lock(&self.state).clear_halt_results.push_back(Err(message.into()));
+        lock(&self.state)
+            .clear_halt_results
+            .push_back(Err(message.into()));
     }
 
     pub fn stats(&self) -> Stats {
@@ -136,7 +148,11 @@ impl State {
         if let Some(i) = self.queue.iter().position(|q| q.cancelled) {
             let q = self.queue.remove(i).expect("position is in range");
             self.stats.completed += 1;
-            return Some(Completion { buffer: q.buf, actual_len: 0, status: Err(TransferError::Cancelled) });
+            return Some(Completion {
+                buffer: q.buf,
+                actual_len: 0,
+                status: Err(TransferError::Cancelled),
+            });
         }
         if self.halted {
             return None;
@@ -166,7 +182,11 @@ impl State {
         q.buf.clear();
         q.buf.extend_from_slice(&bytes[..take]);
         self.stats.completed += 1;
-        Some(Completion { buffer: q.buf, actual_len: take, status })
+        Some(Completion {
+            buffer: q.buf,
+            actual_len: take,
+            status,
+        })
     }
 }
 
@@ -181,7 +201,10 @@ impl BulkIn for MockBulkIn {
 
     fn submit(&mut self, buf: Buffer) {
         let mut s = lock(&self.state);
-        s.queue.push_back(Queued { buf, cancelled: false });
+        s.queue.push_back(Queued {
+            buf,
+            cancelled: false,
+        });
         s.stats.submitted += 1;
         s.stats.max_pending = s.stats.max_pending.max(s.queue.len());
     }

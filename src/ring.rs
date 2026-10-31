@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
-use std::vec::Vec;
 use std::task::{Context, Poll, Waker};
+use std::vec::Vec;
 
 use crate::Iq;
 use crate::error::{Error, Result};
